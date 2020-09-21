@@ -5,6 +5,7 @@ stages:
 variables:
   DOCKER_DRIVER: overlay2
   PYTHONUNBUFFERED: 1
+  GIT_DEPTH: 1
 
 .test_template: &test_definition
   stage: test
@@ -30,62 +31,69 @@ variables:
     paths:
       - ".test-out"
 
-  image: northaeth/studentdocker:latest
+  image: simonschethz/studentdocker:latest
 
 
 http-single-domain:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["http01", "--test-name", "http-single-domain", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com"]
 
 http-multi-domain:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["http01", "--test-name", "http-multi-domain", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--domain", "test.example.com", ]
 
 dns-single-domain:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["dns01", "--test-name", "dns-single-domain", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com"]
 
 dns-multi-domain:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["dns01", "--test-name", "dns-multi-domain", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--domain", "test.example.com"]
 
 dns-wildcard-domain:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["dns01", "--test-name", "dns-wildcard-domain", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--domain", "*.example.com"]
 
 http-revocation:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["http01", "--test-name", "http-revocation", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--revoke"]
 
 dns-revocation:
   <<: *test_definition
   services:
-    - name: northaeth/testing:latest
+    - name: simonschethz/testing:latest
       alias: pebble
       command: ["dns01", "--test-name", "dns-revocation", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--revoke"]
+
+invalid-certificate:
+  <<: *test_definition
+  services:
+    - name: simonschethz/testing:latest
+      alias: pebble
+      command: ["http01", "--test-name", "invalid-certificate", "--dir", "https://pebble:14000/dir", "--client-hostname", "student-project", "--domain", "example.com", "--invalid-cert"]
 
 
 give-score:
   stage: evaluate
-  image: northaeth/evaluator:latest
+  image: simonschethz/evaluator:latest
   script:
     - "evaluator"
   artifacts:
