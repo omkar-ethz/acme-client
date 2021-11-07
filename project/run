@@ -5,4 +5,5 @@ cd  "$DIRECTORY" || exit 1
 
 echo "Run your project here. Args: $1 $2 $3 $4 $5"
 echo "Starting DNS server on UDP port 10053..."
-python -m dnslib.fixedresolver -p 10053 -r ". 60 IN A $5"
+python -m dnslib.fixedresolver -p 10053 -r ". 60 IN A $5" &
+python accountactions.py $@
