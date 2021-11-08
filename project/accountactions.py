@@ -11,6 +11,9 @@ import argparse
 
 from challenge_server import ChallengeServer
 import argparse
+
+import csr_utils
+
 print(sys.argv)
 parser = argparse.ArgumentParser("ACME client")
 parser.add_argument("challenge_type")
@@ -21,7 +24,6 @@ parser.add_argument("--revoke", action='store_true')
 args = parser.parse_args()
 
 
-acme_server_url = "https://127.0.0.1:14000/dir"
 acme_server_url = args.dir
 dir_json = requests.get(acme_server_url, verify='./pebble.minica.pem').json()
 print('dir json', dir_json)
@@ -69,13 +71,6 @@ def get_new_orders_request(nonce, url, kid):
     var = {
         'identifiers': [
             {
-                'value': 'omzade.ethz.ch',
-                'type': 'dns'}
-        ]
-    }
-    var = {
-        'identifiers': [
-            {
                 'value': args.domain[0],
                 'type': 'dns'}
         ]
@@ -90,9 +85,36 @@ def get_new_orders_request(nonce, url, kid):
     }
 
 
+def get_finalize_request(nonce, url, kid, csr):
+    protected = jose_utils.get_protected_header_with_kid(nonce, url, kid)
+    var = {
+        "csr": csr.decode('utf-8')
+    }
+    payload = jose_utils.base64url_enc(json.dumps(var).encode('utf-8'))
+    signing_input = jose_utils.get_signing_input(protected, payload)
+    signature = jose_utils.get_signature(signing_input)
+    return {
+        'protected': protected.decode('utf-8'),
+        'payload': payload.decode('utf-8'),
+        'signature': signature.decode('utf-8')
+    }
+
+
 def post_as_get(nonce, url, kid):
     protected = jose_utils.get_protected_header_with_kid(nonce, url, kid)
     payload = jose_utils.base64url_enc(b'')
+    signing_input = jose_utils.get_signing_input(protected, payload)
+    signature = jose_utils.get_signature(signing_input)
+    return {
+        'protected': protected.decode('utf-8'),
+        'payload': payload.decode('utf-8'),
+        'signature': signature.decode('utf-8')
+    }
+
+
+def post_as_get_empty_payload(nonce, url, kid):
+    protected = jose_utils.get_protected_header_with_kid(nonce, url, kid)
+    payload = jose_utils.base64url_enc(b'{}')
     signing_input = jose_utils.get_signing_input(protected, payload)
     signature = jose_utils.get_signature(signing_input)
     return {
@@ -127,20 +149,53 @@ key_authorization = jose_utils.get_key_authorization(token)
 p = subprocess.Popen(["python", "challenge_server.py", key_authorization])
 print(p.returncode, p.args, p.pid, p.stdout)
 print('running')
-time.sleep(3)
+time.sleep(1)
+
 print(requests.get("http://127.0.0.1:5002/"))
+
 count = 0
+chall_response = requests.post(http_challenge['url'], json=post_as_get_empty_payload(nonce, http_challenge['url'], kid),
+                                   headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+print(chall_response.json(), chall_response.headers)
+nonce = chall_response.headers['Replay-Nonce']
+##Poll
 while True:
+    if chall_response.json()['status'] != 'pending' or count == 3:
+        break
     count += 1
     chall_response = requests.post(http_challenge['url'], json=post_as_get(nonce, http_challenge['url'], kid),
                                    headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
     print(chall_response.json(), chall_response.headers)
     nonce = chall_response.headers['Replay-Nonce']
-    if chall_response.json()['status'] != 'pending' or count == 10:
-        break
     time.sleep(5*count)
 
 print('finished', chall_response.json(), chall_response.headers)
 authz_resp = requests.post(authz_url, json=post_as_get(nonce, authz_url, kid),
                            headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
 print(authz_resp.json(), authz_resp.headers)
+nonce = authz_resp.headers['Replay-Nonce']
+
+csr = csr_utils.get_csr([args.domain[0]])
+print('csr', csr)
+finalize_url = new_orders_resp.json()['finalize']
+finalize_resp = requests.post(finalize_url, json=get_finalize_request(nonce, finalize_url, kid, csr),
+                              headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+print(finalize_resp.json(), finalize_resp.headers)
+nonce = finalize_resp.headers['Replay-Nonce']
+
+time.sleep(1)
+my_order_url = finalize_resp.headers['Location']
+my_order_resp = requests.post(my_order_url, json=post_as_get(nonce, my_order_url, kid),
+                           headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+print(my_order_resp.json(), my_order_resp.headers)
+nonce = my_order_resp.headers['Replay-Nonce']
+
+cert_url = my_order_resp.json()['certificate']
+download_cert_resp = requests.post(cert_url, json=post_as_get(nonce, cert_url, kid),
+                                   headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+print(download_cert_resp.content, download_cert_resp.headers, download_cert_resp.status_code)
+with open("cert.pem", "wb") as f:
+    f.write(download_cert_resp.content)
+
+cert_server_process = subprocess.Popen(["python", "certificate_server.py"])
+cert_server_process.wait()
