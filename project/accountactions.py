@@ -1,18 +1,14 @@
 # module for requesting account creation and certificate revocation
+import argparse
 import json
 import subprocess
 import sys
-import threading
 import time
 
 import requests
-import jose_utils
-import argparse
-
-from challenge_server import ChallengeServer
-import argparse
 
 import csr_utils
+import jose_utils
 
 print(sys.argv)
 parser = argparse.ArgumentParser("ACME client")
@@ -124,6 +120,20 @@ def post_as_get_empty_payload(nonce, url, kid):
     }
 
 
+def get_revoke_cert_request(nonce, url, kid, certificate):
+    protected = jose_utils.get_protected_header_with_kid(nonce, url, kid)
+    var = {
+        "certificate": certificate.decode('utf-8')
+    }
+    payload = jose_utils.base64url_enc(json.dumps(var).encode('utf-8'))
+    signing_input = jose_utils.get_signing_input(protected, payload)
+    signature = jose_utils.get_signature(signing_input)
+    return {
+        'protected': protected.decode('utf-8'),
+        'payload': payload.decode('utf-8'),
+        'signature': signature.decode('utf-8')
+    }
+
 nonce = request_nonce()
 resp = create_account(nonce)
 print(resp.json(), resp.headers)
@@ -194,8 +204,18 @@ cert_url = my_order_resp.json()['certificate']
 download_cert_resp = requests.post(cert_url, json=post_as_get(nonce, cert_url, kid),
                                    headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
 print(download_cert_resp.content, download_cert_resp.headers, download_cert_resp.status_code)
+nonce = download_cert_resp.headers['Replay-Nonce']
+
 with open("cert.pem", "wb") as f:
     f.write(download_cert_resp.content)
 
 cert_server_process = subprocess.Popen(["python", "certificate_server.py"])
+
+if args.revoke:
+    der_cert = csr_utils.get_cert_DER(download_cert_resp.content)
+    revoke_cert_url = dir_json['revokeCert']
+    revoke_cert_resp = requests.post(revoke_cert_url, json=get_revoke_cert_request(nonce, revoke_cert_url, kid, der_cert),
+                  headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+    print(revoke_cert_resp.content, revoke_cert_resp.headers)
+
 cert_server_process.wait()

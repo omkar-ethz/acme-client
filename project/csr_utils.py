@@ -29,5 +29,11 @@ def get_csr(dns_names):
     return base64url_enc(csr.public_bytes(serialization.Encoding.DER))
 
 
+def get_cert_DER(cert_pem):
+    pem_cert = x509.load_pem_x509_certificate(cert_pem)
+    # Serialize it to DER format
+    return base64url_enc(pem_cert.public_bytes(serialization.Encoding.DER))
+
+
 def base64url_enc(bytestring):
     return base64.urlsafe_b64encode(bytestring).rstrip(b'=')
