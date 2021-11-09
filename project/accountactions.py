@@ -152,7 +152,7 @@ authz_resp = requests.post(authz_url, json=post_as_get(nonce, authz_url, kid),
 print(authz_resp.json(), authz_resp.headers)
 nonce = authz_resp.headers['Replay-Nonce']
 
-if args.challenge_type == 'http-01':
+if args.challenge_type == 'http01':
     http_challenge = [x for x in authz_resp.json()['challenges'] if x['type'] == 'http-01'][0]
     token = http_challenge['token']
     key_authorization = jose_utils.get_key_authorization(token)
