@@ -47,6 +47,12 @@ def get_key_authorization(token):
     return token + '.' + get_thumbprint().decode('utf-8')
 
 
+def get_SHA256_digest(message):
+    m = hashlib.sha256()
+    m.update(message)
+    return base64url_enc(m.digest())
+
+
 def get_protected_header_with_kid(nonce, url, kid):
     var = {
         "alg": "ES256",

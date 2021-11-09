@@ -19,7 +19,6 @@ parser.add_argument("--domain", action='append')
 parser.add_argument("--revoke", action='store_true')
 args = parser.parse_args()
 
-
 acme_server_url = args.dir
 dir_json = requests.get(acme_server_url, verify='./pebble.minica.pem').json()
 print('dir json', dir_json)
@@ -134,6 +133,7 @@ def get_revoke_cert_request(nonce, url, kid, certificate):
         'signature': signature.decode('utf-8')
     }
 
+
 nonce = request_nonce()
 resp = create_account(nonce)
 print(resp.json(), resp.headers)
@@ -150,22 +150,34 @@ authz_url = new_orders_resp.json()['authorizations'][0]
 authz_resp = requests.post(authz_url, json=post_as_get(nonce, authz_url, kid),
                            headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
 print(authz_resp.json(), authz_resp.headers)
-# if type==http-01
 nonce = authz_resp.headers['Replay-Nonce']
-http_challenge = [x for x in authz_resp.json()['challenges'] if x['type'] == 'http-01'][0]
-token = http_challenge['token']
-key_authorization = jose_utils.get_key_authorization(token)
 
-p = subprocess.Popen(["python", "challenge_server.py", key_authorization])
-print(p.returncode, p.args, p.pid, p.stdout)
-print('running')
-time.sleep(1)
+if args.challenge_type == 'http-01':
+    http_challenge = [x for x in authz_resp.json()['challenges'] if x['type'] == 'http-01'][0]
+    token = http_challenge['token']
+    key_authorization = jose_utils.get_key_authorization(token)
 
-print(requests.get("http://127.0.0.1:5002/"))
+    p = subprocess.Popen(["python", "challenge_server.py", key_authorization])
+    print(p.returncode, p.args, p.pid, p.stdout)
+    print('running')
+    time.sleep(1)
+
+else:
+    print("performing dns-01")
+    dns_challenge = [x for x in authz_resp.json()['challenges'] if x['type'] == 'dns-01'][0]
+    token = dns_challenge['token']
+    key_authorization = jose_utils.get_key_authorization(token)
+    key_auth_digest = jose_utils.get_SHA256_digest(key_authorization.encode('utf-8')).decode('utf-8')
+    print(f"running custom resolver {args.record} -- {key_auth_digest}")
+    p = subprocess.Popen(
+        ["python", "custom_resolver.py", "-p", "10053", "-r", f". 60 IN A {args.record}", "--key_auth_digest",
+         key_auth_digest])
+    time.sleep(1)
+    http_challenge = dns_challenge
 
 count = 0
 chall_response = requests.post(http_challenge['url'], json=post_as_get_empty_payload(nonce, http_challenge['url'], kid),
-                                   headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+                               headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
 print(chall_response.json(), chall_response.headers)
 nonce = chall_response.headers['Replay-Nonce']
 ##Poll
@@ -177,7 +189,7 @@ while True:
                                    headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
     print(chall_response.json(), chall_response.headers)
     nonce = chall_response.headers['Replay-Nonce']
-    time.sleep(5*count)
+    time.sleep(5 * count)
 
 print('finished', chall_response.json(), chall_response.headers)
 authz_resp = requests.post(authz_url, json=post_as_get(nonce, authz_url, kid),
@@ -196,7 +208,7 @@ nonce = finalize_resp.headers['Replay-Nonce']
 time.sleep(1)
 my_order_url = finalize_resp.headers['Location']
 my_order_resp = requests.post(my_order_url, json=post_as_get(nonce, my_order_url, kid),
-                           headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+                              headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
 print(my_order_resp.json(), my_order_resp.headers)
 nonce = my_order_resp.headers['Replay-Nonce']
 
@@ -214,8 +226,9 @@ cert_server_process = subprocess.Popen(["python", "certificate_server.py"])
 if args.revoke:
     der_cert = csr_utils.get_cert_DER(download_cert_resp.content)
     revoke_cert_url = dir_json['revokeCert']
-    revoke_cert_resp = requests.post(revoke_cert_url, json=get_revoke_cert_request(nonce, revoke_cert_url, kid, der_cert),
-                  headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
+    revoke_cert_resp = requests.post(revoke_cert_url,
+                                     json=get_revoke_cert_request(nonce, revoke_cert_url, kid, der_cert),
+                                     headers={'Content-Type': 'application/jose+json'}, verify='./pebble.minica.pem')
     print(revoke_cert_resp.content, revoke_cert_resp.headers)
 
 cert_server_process.wait()
